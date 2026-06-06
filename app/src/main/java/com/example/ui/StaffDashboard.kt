@@ -466,7 +466,7 @@ fun MarkAttendanceView(repository: CollegeRepository, userId: Long) {
                                             fontSize = 12.sp
                                         )
                                         Text(
-                                            text = "${sPlan.course} - ${sPlan.year} (Div ${sPlan.division})",
+                                            text = "${sPlan.course} - ${sPlan.year}",
                                             fontWeight = FontWeight.Medium,
                                             color = if (isSelected) Color.White.copy(alpha = 0.8f) else Color.DarkGray,
                                             fontSize = 10.sp
@@ -675,7 +675,7 @@ fun MarkAttendanceView(repository: CollegeRepository, userId: Long) {
                                 style = MaterialTheme.typography.bodyLarge
                             )
                             Text(
-                                "Roll: ${sProfile.rollNo}  |  Div: ${sProfile.division}",
+                                "Roll: ${sProfile.rollNo}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.Gray
                             )
@@ -898,31 +898,6 @@ fun StaffScheduleView(repository: CollegeRepository, userId: Long) {
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text("Class Division", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("A", "B", "C").forEach { div ->
-                        val active = selectedDivision == div
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(
-                                    if (active) DeepBlue else Color.LightGray.copy(alpha = 0.3f),
-                                    shape = RoundedCornerShape(6.dp)
-                                )
-                                .clickable { selectedDivision = div }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(div, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (active) Color.White else Color.DarkGray)
-                        }
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text("Select Scheduled Day", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
@@ -1075,7 +1050,7 @@ fun StaffScheduleView(repository: CollegeRepository, userId: Long) {
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "${plan.course} ${plan.year} (Div ${plan.division})",
+                                    text = "${plan.course} ${plan.year}",
                                     fontSize = 12.sp,
                                     color = Color.DarkGray
                                 )
@@ -1158,6 +1133,78 @@ fun StaffScheduleView(repository: CollegeRepository, userId: Long) {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "CAMPUS PUBLISHED PDF TIMETABLES",
+            style = MaterialTheme.typography.titleSmall,
+            color = DeepBlue,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 10.dp)
+        )
+
+        val publishedTimetables by repository.allTimetables.collectAsState(initial = emptyList())
+
+        if (publishedTimetables.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Box(modifier = Modifier.padding(24.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No official PDF timetables published by the college yet.", color = Color.Gray, fontSize = 13.sp)
+                }
+            }
+        } else {
+            publishedTimetables.forEach { timetable ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(1.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.InsertDriveFile,
+                            contentDescription = "pdf",
+                            tint = ErrorRed,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = timetable.fileName,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = DeepBlue
+                            )
+                            Text(
+                                text = "Course: ${timetable.course} | Sem/Year: ${timetable.year}",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                Toast.makeText(context, "Downloading/Viewing PDF: ${timetable.fileName}", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = DeepBlue),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("Open", fontSize = 10.sp, color = Color.White)
                         }
                     }
                 }

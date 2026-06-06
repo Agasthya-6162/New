@@ -153,6 +153,16 @@ data class TeachingPlan(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "timetables")
+data class Timetable(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val course: String,
+    val year: String, // Semester for B.Pharm/M.Pharm, Year for others
+    val fileName: String,
+    val fileUri: String,
+    val uploadedAt: Long = System.currentTimeMillis()
+)
+
 // ==========================================
 // 2. CONSOLIDATED DAO INTERFACE
 // ==========================================
@@ -225,6 +235,9 @@ interface CollegeDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSubject(subject: Subject): Long
+
+    @Delete
+    suspend fun deleteSubject(subject: Subject)
 
     // --- ATTENDANCE QUERIES ---
     @Query("SELECT * FROM attendance WHERE studentId = :studentId")
@@ -326,6 +339,16 @@ interface CollegeDao {
 
     @Delete
     suspend fun deleteTeachingPlan(plan: TeachingPlan)
+
+    // --- TIMETABLES ---
+    @Query("SELECT * FROM timetables ORDER BY id DESC")
+    fun getAllTimetablesFlow(): Flow<List<Timetable>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTimetable(timetable: Timetable): Long
+
+    @Delete
+    suspend fun deleteTimetable(timetable: Timetable)
 }
 
 // ==========================================
@@ -345,9 +368,10 @@ interface CollegeDao {
         ExamSchedule::class,
         Scholarship::class,
         GalleryItem::class,
-        TeachingPlan::class
+        TeachingPlan::class,
+        Timetable::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class CollegeDatabase : RoomDatabase() {
@@ -392,6 +416,7 @@ class CollegeRepository(private val dao: CollegeDao) {
     val allScholarships: Flow<List<Scholarship>> = dao.getAllScholarshipsFlow()
     val allGalleryItems: Flow<List<GalleryItem>> = dao.getAllGalleryFlow()
     val allTeachingPlans: Flow<List<TeachingPlan>> = dao.getAllTeachingPlansFlow()
+    val allTimetables: Flow<List<Timetable>> = dao.getAllTimetablesFlow()
 
     fun getUserById(id: Long): Flow<User?> = dao.getUserByIdFlow(id)
     fun getSubjectsForStaff(staffId: Long): Flow<List<Subject>> = dao.getSubjectsByStaffFlow(staffId)
@@ -445,6 +470,10 @@ class CollegeRepository(private val dao: CollegeDao) {
         dao.insertSubject(subject)
     }
 
+    suspend fun deleteSubject(subject: Subject) {
+        dao.deleteSubject(subject)
+    }
+
     suspend fun updateAttendanceRecord(attendance: Attendance) {
         dao.updateAttendance(attendance)
     }
@@ -495,6 +524,14 @@ class CollegeRepository(private val dao: CollegeDao) {
 
     suspend fun deleteTeachingPlan(plan: TeachingPlan) {
         dao.deleteTeachingPlan(plan)
+    }
+
+    suspend fun insertTimetable(timetable: Timetable): Long {
+        return dao.insertTimetable(timetable)
+    }
+
+    suspend fun deleteTimetable(timetable: Timetable) {
+        dao.deleteTimetable(timetable)
     }
 
     suspend fun getStudentProfileDirect(userId: Long): StudentProfile? {
@@ -614,3 +651,34 @@ class CollegeRepository(private val dao: CollegeDao) {
         }
     }
 }
+
+// Global course-semester mapping and compatibility helper functions
+fun getYearsOrSemestersForCourse(course: String): List<String> {
+    return when (course) {
+        "B.Pharm" -> listOf("Semester 1", "Semester 2", "Semester 3", "Semester 4", "Semester 5", "Semester 6", "Semester 7", "Semester 8")
+        "M.Pharm" -> listOf("Semester 1", "Semester 2", "Semester 3", "Semester 4")
+        "PharmD" -> listOf("1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year", "6th Year")
+        "D.Pharm" -> listOf("1st Year", "2nd Year")
+        else -> listOf("1st Year", "2nd Year", "3rd Year", "4th Year")
+    }
+}
+
+fun isYearOrSemMatch(profileVal: String, filterVal: String): Boolean {
+    val pVal = profileVal.lowercase().trim()
+    val fVal = filterVal.lowercase().trim()
+    if (pVal == fVal) return true
+    
+    // Map existing years or semesters interchangeably to bridge seeded 4th Year / Sem 7 & 8 data points
+    if (pVal == "1st year" && (fVal == "semester 1" || fVal == "semester 2")) return true
+    if (pVal == "2nd year" && (fVal == "semester 3" || fVal == "semester 4")) return true
+    if (pVal == "3rd year" && (fVal == "semester 5" || fVal == "semester 6")) return true
+    if (pVal == "4th year" && (fVal == "semester 7" || fVal == "semester 8")) return true
+    
+    if (fVal == "1st year" && (pVal == "semester 1" || pVal == "semester 2")) return true
+    if (fVal == "2nd year" && (pVal == "semester 3" || pVal == "semester 4")) return true
+    if (fVal == "3rd year" && (pVal == "semester 5" || pVal == "semester 6")) return true
+    if (fVal == "4th year" && (pVal == "semester 7" || pVal == "semester 8")) return true
+    
+    return false
+}
+

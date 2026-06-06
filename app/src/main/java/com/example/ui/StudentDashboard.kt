@@ -57,7 +57,7 @@ fun StudentDashboardScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     // Current navigation tab inside dashboard
-    var selectedDrawerTab by remember { mutableStateOf("Attendance") } // "Profile", "Attendance", "Notifications", "Events", "Exams", "Scholarships", "Gallery"
+    var selectedDrawerTab by remember { mutableStateOf("Attendance") } // "Profile", "Attendance", "Notifications", "Events", "Exams", "Scholarships", "Gallery", "Timetable"
 
     // Fetch student info
     val studentProfileState = repository.getStudentProfile(userId).collectAsState(initial = null)
@@ -66,6 +66,7 @@ fun StudentDashboardScreen(
     // Side Drawer items
     val drawerItems = listOf(
         NavigationRowItem("Attendance", Icons.Default.CheckCircle, "Present checks"),
+        NavigationRowItem("Timetable", Icons.Default.Schedule, "Class slots"),
         NavigationRowItem("Profile", Icons.Default.Person, "My details"),
         NavigationRowItem("Notifications", Icons.Default.Notifications, "Updates"),
         NavigationRowItem("Events", Icons.Default.Event, "Fests"),
@@ -211,7 +212,8 @@ fun StudentDashboardScreen(
                 // Navigation components switcher
                 when (selectedDrawerTab) {
                     "Attendance" -> StudentAttendanceView(repository, userId)
-                    "Profile" -> StudentProfileView(userState.value, studentProfileState.value)
+                    "Timetable" -> StudentTimetableView(repository, studentProfileState.value)
+                    "Profile" -> StudentProfileView(userState.value, studentProfileState.value, repository)
                     "Notifications" -> StudentNotificationsView(repository)
                     "Events" -> StudentEventsView(repository)
                     "Exams Schedule" -> StudentExamsView(repository, studentProfileState.value)
@@ -580,7 +582,30 @@ fun StudentAttendanceView(repository: CollegeRepository, userId: Long) {
 // ==========================================
 
 @Composable
-fun StudentProfileView(user: User?, profile: StudentProfile?) {
+fun StudentProfileView(user: User?, profile: StudentProfile?, repository: CollegeRepository) {
+    val userId = user?.id ?: 0L
+    val studentAttendanceState = repository.getAttendanceForStudent(userId).collectAsState(initial = emptyList())
+    val studentAttendance = studentAttendanceState.value
+
+    val months = listOf(
+        "Jan" to "01-2026",
+        "Feb" to "02-2026",
+        "Mar" to "03-2026",
+        "Apr" to "04-2026",
+        "May" to "05-2026",
+        "Jun" to "06-2026"
+    )
+
+    val trends = remember(studentAttendance) {
+        months.map { (name, suffix) ->
+            val monthRecs = studentAttendance.filter { it.date.endsWith(suffix) }
+            val total = monthRecs.size
+            val present = monthRecs.count { it.status == "Present" }
+            val percentage = if (total > 0) (present.toFloat() / total.toFloat() * 100f) else 100f
+            name to percentage
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -681,6 +706,8 @@ fun StudentProfileView(user: User?, profile: StudentProfile?) {
                 }
             }
         }
+
+        AttendanceTrendsLineGraph(trendPoints = trends)
     }
 }
 
@@ -986,6 +1013,231 @@ fun StudentGalleryView(repository: CollegeRepository) {
                         Column(modifier = Modifier.padding(8.dp)) {
                             Text(item.caption, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(item.eventName, style = MaterialTheme.typography.labelSmall, color = Amber)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentTimetableView(repository: CollegeRepository, profile: StudentProfile?) {
+    val context = LocalContext.current
+    val allTimetables by repository.allTimetables.collectAsState(initial = emptyList())
+    val allTeachingPlans by repository.allTeachingPlans.collectAsState(initial = emptyList())
+    val allSubjects by repository.allSubjects.collectAsState(initial = emptyList())
+    val allUsers by repository.allUsers.collectAsState(initial = emptyList())
+
+    val course = profile?.course ?: "B.Pharm"
+    val year = profile?.year ?: "1st Semester"
+
+    // Filter timetables matching student's course and year
+    val matchingTimetables = remember(allTimetables, course, year) {
+        allTimetables.filter {
+            it.course.lowercase().trim() == course.lowercase().trim() &&
+            isYearOrSemMatch(year, it.year)
+        }
+    }
+
+    // Filter active weekly teaching plans matching this student's course and year
+    val classTeachingPlans = remember(allTeachingPlans, course, year) {
+        allTeachingPlans.filter {
+            it.course.lowercase().trim() == course.lowercase().trim() &&
+            isYearOrSemMatch(year, it.year) &&
+            it.status == "Approved"
+        }
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                colors = CardDefaults.cardColors(containerColor = DeepBlue),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "YOUR ACADEMIC CLASS: $course ($year)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Amber
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Official Academic Timetable Hub",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Below are the official PDF timetables published by the college administration and your weekly scheduled classes.",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "OFFICIAL TIMETABLE ATTACHMENTS (PDF)",
+                style = MaterialTheme.typography.titleSmall,
+                color = DeepBlue,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+
+        if (matchingTimetables.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(modifier = Modifier.padding(20.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "No official PDF timetables published for your class yet.",
+                            color = Color.Gray,
+                            fontSize = 12.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        } else {
+            items(matchingTimetables) { t ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                        .clickable {
+                            Toast.makeText(context, "Opening ${t.fileName} directly in web preview...", Toast.LENGTH_SHORT).show()
+                        },
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(1.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.InsertDriveFile,
+                            contentDescription = "pdf",
+                            tint = ErrorRed,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = t.fileName,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = DeepBlue,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "Course: ${t.course} | ${t.year}",
+                                fontSize = 11.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                Toast.makeText(context, "Opening simulated PDF Viewer... (Doc ID #${t.id})", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = DeepBlue),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Open PDF", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "WEEKLY INTERACTIVE CLASS PLAN",
+                style = MaterialTheme.typography.titleSmall,
+                color = DeepBlue,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp, top = 8.dp)
+            )
+        }
+
+        if (classTeachingPlans.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(modifier = Modifier.padding(20.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "No teacher schedule plans approved for your division yet.",
+                            color = Color.Gray,
+                            fontSize = 12.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        } else {
+            val daysOfWeek = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+            items(daysOfWeek) { day ->
+                val dayPlans = classTeachingPlans.filter { it.scheduledDay.lowercase().trim() == day.lowercase() }
+                if (dayPlans.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(1.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(text = day, fontWeight = FontWeight.Bold, color = DeepBlue, fontSize = 13.sp)
+                            Divider(modifier = Modifier.padding(vertical = 6.dp), color = Color.LightGray.copy(alpha = 0.3f))
+                            dayPlans.forEachIndexed { index, plan ->
+                                val subject = allSubjects.firstOrNull { it.id == plan.subjectId }
+                                val professor = allUsers.firstOrNull { it.id == plan.staffId }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = subject?.name ?: "Subject Class",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 12.sp,
+                                            color = Color.Black
+                                        )
+                                        Text(
+                                            text = "Professor: ${professor?.name ?: "Prof. Assigned"}",
+                                            fontSize = 10.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    Text(
+                                        text = plan.scheduledTime,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = SuccessGreen
+                                    )
+                                }
+                                if (index < dayPlans.size - 1) {
+                                    Divider(modifier = Modifier.padding(vertical = 4.dp), color = Color.LightGray.copy(alpha = 0.15f))
+                                }
+                            }
                         }
                     }
                 }

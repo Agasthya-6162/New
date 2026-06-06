@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.*
@@ -71,12 +72,14 @@ fun AdminDashboardScreen(
                 }
                 "Students" -> ManageStudentsScreen(repository)
                 "Staff" -> ManageStaffScreen(repository)
+                "Subjects" -> ManageSubjectsScreen(repository)
                 "Registrations" -> ManageRegistrationsScreen(repository)
                 "Attendance Approvals" -> AttendanceApprovalsScreen(repository)
                 "Leaves" -> LeaveApprovalsScreen(repository)
                 "Reports" -> AttendanceReportsScreen(repository)
                 "Circulars" -> BroadcastCircularsScreen(repository)
                 "Teaching Plan Approvals" -> TeachingPlanApprovalsScreen(repository)
+                "Timetables" -> ManageTimetablesScreen(repository)
             }
         }
     }
@@ -190,10 +193,12 @@ fun AdminDashboardHub(
 
         val actions = listOf(
             Triple("Manage Students", Icons.Default.Group, "Students"),
-            Triple("Manage Staff & Subjects", Icons.Default.SupervisedUserCircle, "Staff"),
+            Triple("Manage Faculty Members", Icons.Default.SupervisedUserCircle, "Staff"),
+            Triple("Manage Academic Subjects", Icons.Default.Book, "Subjects"),
             Triple("Attendance Reports & PDFs", Icons.Default.Assessment, "Reports"),
             Triple("Broadcast Circular Notif", Icons.Default.Campaign, "Circulars"),
-            Triple("Teaching Plan Approvals", Icons.Default.Assignment, "Teaching Plan Approvals")
+            Triple("Teaching Plan Approvals", Icons.Default.Assignment, "Teaching Plan Approvals"),
+            Triple("Manage Academic Timetables", Icons.Default.Schedule, "Timetables")
         )
 
         actions.forEach { act ->
@@ -1406,6 +1411,12 @@ fun AttendanceReportsScreen(repository: CollegeRepository) {
     // Tabs for screen structure
     var activeReportTab by remember { mutableStateOf("Ledger") } // "Ledger" or "ProfessorTracker"
 
+    // Unified 6-Month dynamic filtering properties
+    var selectedCourseFilter by remember { mutableStateOf("All") } // "All", "B.Pharm", "D.Pharm", "M.Pharm", "PharmD"
+    var selectedYearFilter by remember { mutableStateOf("All") }
+    var selectedSixMonthsFilter by remember { mutableStateOf("All") } // "All", "June 2026", "May 2026"
+    var globalSearchFilter by remember { mutableStateOf("") }
+
     // --- State variables for Professor Tracker Tab ---
     val professorsList = remember(allUsers) {
         allUsers.filter { it.role == "Staff" && it.status == "active" }
@@ -1464,16 +1475,198 @@ fun AttendanceReportsScreen(repository: CollegeRepository) {
             }
         }
 
+        // 6-Month dynamic filters panel
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.4f))
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "ACADEMIC LEDGER FILTERS (6 MONTHS JOURNAL)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = DeepBlue,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Course Selector dropdown
+                    Box(modifier = Modifier.weight(1f)) {
+                        var expCourse by remember { mutableStateOf(false) }
+                        OutlinedButton(
+                            onClick = { expCourse = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Text(selectedCourseFilter, fontSize = 11.sp, color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.Default.ArrowDropDown, "down", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                        DropdownMenu(expanded = expCourse, onDismissRequest = { expCourse = false }) {
+                            listOf("All", "B.Pharm", "D.Pharm", "M.Pharm", "PharmD").forEach { c ->
+                                DropdownMenuItem(
+                                    text = { Text(c, fontSize = 12.sp) },
+                                    onClick = {
+                                        selectedCourseFilter = c
+                                        selectedYearFilter = "All"
+                                        expCourse = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Semester/Year Selector dropdown
+                    Box(modifier = Modifier.weight(1f)) {
+                        var expYear by remember { mutableStateOf(false) }
+                        val yearOptions = if (selectedCourseFilter == "All") {
+                            listOf("All")
+                        } else {
+                            listOf("All") + getYearsOrSemestersForCourse(selectedCourseFilter)
+                        }
+                        OutlinedButton(
+                            onClick = { expYear = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Text(selectedYearFilter, fontSize = 11.sp, color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.Default.ArrowDropDown, "down", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                        DropdownMenu(expanded = expYear, onDismissRequest = { expYear = false }) {
+                            yearOptions.forEach { y ->
+                                DropdownMenuItem(
+                                    text = { Text(y, fontSize = 12.sp) },
+                                    onClick = {
+                                        selectedYearFilter = y
+                                        expYear = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Month Range Dropdown
+                    Box(modifier = Modifier.weight(1f)) {
+                        var expMonth by remember { mutableStateOf(false) }
+                        val monthOptions = listOf(
+                            "All" to "All 6 Months",
+                            "June 2026" to "Jun 2026",
+                            "May 2026" to "May 2026",
+                            "April 2026" to "Apr 2026",
+                            "March 2026" to "Mar 2026",
+                            "February 2026" to "Feb 2026",
+                            "January 2026" to "Jan 2026"
+                        )
+                        val activeLabel = monthOptions.firstOrNull { it.first == selectedSixMonthsFilter }?.second ?: "6 Months"
+                        OutlinedButton(
+                            onClick = { expMonth = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Text(activeLabel, fontSize = 11.sp, color = Color.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Icon(Icons.Default.ArrowDropDown, "down", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                        DropdownMenu(expanded = expMonth, onDismissRequest = { expMonth = false }) {
+                            monthOptions.forEach { (valStr, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label, fontSize = 12.sp) },
+                                    onClick = {
+                                        selectedSixMonthsFilter = valStr
+                                        expMonth = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                OutlinedTextField(
+                    value = globalSearchFilter,
+                    onValueChange = { globalSearchFilter = it },
+                    placeholder = { Text("Search Students or Subjects...", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color.Gray, modifier = Modifier.size(16.dp)) },
+                    trailingIcon = {
+                        if (globalSearchFilter.isNotEmpty()) {
+                            IconButton(onClick = { globalSearchFilter = "" }) {
+                                Icon(Icons.Default.Close, "clear", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
         if (activeReportTab == "Ledger") {
             // ==================== TAB 1: LEDGER PORTAL ====================
             val approvedRecs = allAttendance.filter { it.approvalStatus == "Approved" }
 
+            val filteredRecs = remember(approvedRecs, selectedCourseFilter, selectedYearFilter, selectedSixMonthsFilter, allStudentProfiles) {
+                var list = approvedRecs
+                if (selectedCourseFilter != "All") {
+                    list = list.filter {
+                        val profile = allStudentProfiles.firstOrNull { p -> p.userId == it.studentId }
+                        profile?.course == selectedCourseFilter
+                    }
+                }
+                if (selectedYearFilter != "All") {
+                    list = list.filter {
+                        val profile = allStudentProfiles.firstOrNull { p -> p.userId == it.studentId }
+                        profile?.year == selectedYearFilter
+                    }
+                }
+                if (selectedSixMonthsFilter != "All") {
+                    val suffix = when (selectedSixMonthsFilter) {
+                        "June 2026" -> "06-2026"
+                        "May 2026" -> "05-2026"
+                        "April 2026" -> "04-2026"
+                        "March 2026" -> "03-2026"
+                        "February 2026" -> "02-2026"
+                        "January 2026" -> "01-2026"
+                        else -> ""
+                    }
+                    if (suffix.isNotEmpty()) {
+                        list = list.filter { it.date.endsWith(suffix) }
+                    }
+                }
+                list
+            }
+
             // Generate dynamic calculated roster rows
-            val reportRows = remember(approvedRecs, allUsers, allStudentProfiles) {
-                val studentUsers = allUsers.filter { it.role == "Student" && it.status == "active" }
-                studentUsers.map { sUser ->
+            val reportRows = remember(filteredRecs, allUsers, allStudentProfiles, selectedCourseFilter, selectedYearFilter, globalSearchFilter) {
+                var studentList = allUsers.filter { it.role == "Student" && it.status == "active" }
+                if (globalSearchFilter.isNotEmpty()) {
+                    val qName = globalSearchFilter.lowercase()
+                    studentList = studentList.filter { it.name.lowercase().contains(qName) }
+                }
+                studentList.mapNotNull { sUser ->
                     val profile = allStudentProfiles.firstOrNull { it.userId == sUser.id }
-                    val studentAtt = approvedRecs.filter { it.studentId == sUser.id }
+                    if (selectedCourseFilter != "All" && profile?.course != selectedCourseFilter) {
+                        return@mapNotNull null
+                    }
+                    if (selectedYearFilter != "All" && profile?.year != selectedYearFilter) {
+                        return@mapNotNull null
+                    }
+
+                    val studentAtt = filteredRecs.filter { it.studentId == sUser.id }
                     val totalClasses = studentAtt.size
                     val presentCount = studentAtt.count { it.status == "Present" }
                     val absentCount = totalClasses - presentCount
@@ -2164,7 +2357,7 @@ fun AttendanceReportsScreen(repository: CollegeRepository) {
                                                         color = Color.Black
                                                     )
                                                     Text(
-                                                        text = "Roll: $rollNo | $courseClass (Div ${sProfile?.division ?: "N/A"})",
+                                                        text = "Roll: $rollNo | $courseClass",
                                                         fontSize = 10.sp,
                                                         color = Color.Gray
                                                     )
@@ -2240,7 +2433,7 @@ fun TeachingPlanApprovalsScreen(repository: CollegeRepository) {
     val allUsers by repository.allUsers.collectAsState(initial = emptyList())
     val allSubjects by repository.allSubjects.collectAsState(initial = emptyList())
     
-    var showHistory by remember { mutableStateOf(false) }
+    var activeTab by remember { mutableStateOf("Pending") } // "Pending", "History", "Simplified"
     
     val pendingPlans = allTeachingPlans.filter { it.status == "Pending" }
     val historyPlans = allTeachingPlans.filter { it.status == "Approved" || it.status == "Rejected" }
@@ -2250,34 +2443,56 @@ fun TeachingPlanApprovalsScreen(repository: CollegeRepository) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        Text(
+            text = "LECTURE TEACHING PLANS",
+            style = MaterialTheme.typography.titleMedium,
+            color = DeepBlue,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        // Sub-tabs
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = "LECTURE TEACHING PLANS",
-                style = MaterialTheme.typography.titleMedium,
-                color = DeepBlue,
-                fontWeight = FontWeight.Bold
+            val tabs = listOf(
+                "Pending" to "Pending",
+                "History" to "History",
+                "Simplified" to "Staff Calendars"
             )
-            
-            Button(
-                onClick = { showHistory = !showHistory },
-                colors = ButtonDefaults.buttonColors(containerColor = if (showHistory) DeepBlue else Color.LightGray),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = if (showHistory) "View Pending" else "View Decisions History",
-                    color = if (showHistory) Color.White else Color.Black,
-                    fontSize = 11.sp
-                )
+            tabs.forEach { (tabId, tabTitle) ->
+                val active = activeTab == tabId
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(
+                            if (active) DeepBlue else Color.White,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (active) DeepBlue else Color.LightGray,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable { activeTab = tabId }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = tabTitle,
+                        color = if (active) Color.White else Color.DarkGray,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
         
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         
-        if (!showHistory) {
+        when (activeTab) {
+            "Pending" -> {
             if (pendingPlans.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -2345,7 +2560,7 @@ fun TeachingPlanApprovalsScreen(repository: CollegeRepository) {
                                 ) {
                                     Column {
                                         Text("COURSE / CLASS", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                                        Text("${plan.course} - ${plan.year} (Div ${plan.division})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DeepBlue)
+                                        Text("${plan.course} - ${plan.year}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DeepBlue)
                                     }
                                     
                                     Column(horizontalAlignment = Alignment.End) {
@@ -2397,87 +2612,215 @@ fun TeachingPlanApprovalsScreen(repository: CollegeRepository) {
                     }
                 }
             }
-        } else {
-            if (historyPlans.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No past approvals/rejections found.", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+            }
+            "History" -> {
+                if (historyPlans.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No past approvals/rejections found.", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(historyPlans) { plan ->
+                            val staffName = allUsers.firstOrNull { it.id == plan.staffId }?.name ?: "Prof. Unknown"
+                            val subjectName = allSubjects.firstOrNull { it.id == plan.subjectId }?.name ?: "Subject #${plan.subjectId}"
+                            val isApproved = plan.status == "Approved"
+                            
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(12.dp),
+                                elevation = CardDefaults.cardElevation(1.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = subjectName,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = DeepBlue
+                                            )
+                                            Text(text = "Proposed by $staffName", fontSize = 12.sp, color = Color.Gray)
+                                        }
+                                        
+                                        Surface(
+                                            color = (if (isApproved) SuccessGreen else ErrorRed).copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isApproved) Icons.Default.Lock else Icons.Default.Cancel,
+                                                    contentDescription = plan.status,
+                                                    tint = if (isApproved) SuccessGreen else ErrorRed,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = plan.status,
+                                                    color = if (isApproved) SuccessGreen else ErrorRed,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
+                                    Divider(modifier = Modifier.padding(vertical = 10.dp), color = Color.LightGray.copy(alpha = 0.3f))
+                                    
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "${plan.course} ${plan.year}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.DarkGray
+                                        )
+                                        
+                                        Text(
+                                            text = "${plan.scheduledDay}s at ${plan.scheduledTime}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = DeepBlue
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(historyPlans) { plan ->
-                        val staffName = allUsers.firstOrNull { it.id == plan.staffId }?.name ?: "Prof. Unknown"
-                        val subjectName = allSubjects.firstOrNull { it.id == plan.subjectId }?.name ?: "Subject #${plan.subjectId}"
-                        val isApproved = plan.status == "Approved"
-                        
+            }
+            "Simplified" -> {
+                val staffUsers = allUsers.filter { it.role == "Staff" && it.status == "active" }
+                var selectedSimplifiedStaffId by remember { mutableStateOf<Long?>(null) }
+                
+                LaunchedEffect(staffUsers) {
+                    if (selectedSimplifiedStaffId == null && staffUsers.isNotEmpty()) {
+                        selectedSimplifiedStaffId = staffUsers.first().id
+                    }
+                }
+                
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Text(
+                        text = "Simplified Professor Schedule View",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    
+                    var expandedStaffSelect by remember { mutableStateOf(false) }
+                    val currentStaff = staffUsers.firstOrNull { it.id == selectedSimplifiedStaffId }
+                    
+                    Box(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                        OutlinedButton(
+                            onClick = { expandedStaffSelect = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = currentStaff?.name ?: "Select Professor...", color = Color.Black, fontSize = 13.sp)
+                                Icon(Icons.Default.ArrowDropDown, "down", tint = Color.Gray)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = expandedStaffSelect,
+                            onDismissRequest = { expandedStaffSelect = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            staffUsers.forEach { staff ->
+                                DropdownMenuItem(
+                                    text = { Text(staff.name) },
+                                    onClick = {
+                                        selectedSimplifiedStaffId = staff.id
+                                        expandedStaffSelect = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    
+                    val currentStaffPlans = allTeachingPlans.filter { it.staffId == selectedSimplifiedStaffId && it.status == "Approved" }
+                    
+                    if (currentStaffPlans.isEmpty()) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = CardDefaults.cardElevation(1.dp)
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = subjectName,
-                                            fontWeight = FontWeight.Bold,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = DeepBlue
-                                        )
-                                        Text(text = "Proposed by $staffName", fontSize = 12.sp, color = Color.Gray)
-                                    }
-                                    
-                                    Surface(
-                                        color = (if (isApproved) SuccessGreen else ErrorRed).copy(alpha = 0.15f),
-                                        shape = RoundedCornerShape(6.dp)
+                            Box(modifier = Modifier.padding(24.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("No approved teaching plans found for this professor.", color = Color.Gray, fontSize = 13.sp)
+                            }
+                        }
+                    } else {
+                        val daysOfWeek = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(daysOfWeek) { day ->
+                                val dayPlans = currentStaffPlans.filter { it.scheduledDay.lowercase().trim() == day.lowercase() }
+                                if (dayPlans.isNotEmpty()) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        shape = RoundedCornerShape(12.dp),
+                                        elevation = CardDefaults.cardElevation(1.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isApproved) Icons.Default.Lock else Icons.Default.Cancel,
-                                                contentDescription = plan.status,
-                                                tint = if (isApproved) SuccessGreen else ErrorRed,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = plan.status,
-                                                color = if (isApproved) SuccessGreen else ErrorRed,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(text = day, fontWeight = FontWeight.Bold, color = DeepBlue, fontSize = 14.sp)
+                                                Surface(
+                                                    color = SuccessGreen.copy(alpha = 0.12f),
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${dayPlans.size} Scheduled",
+                                                        fontSize = 10.sp,
+                                                        color = SuccessGreen,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                            
+                                            Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.LightGray.copy(alpha = 0.3f))
+                                            
+                                            dayPlans.forEachIndexed { idx, plan ->
+                                                val subject = allSubjects.firstOrNull { it.id == plan.subjectId }
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column {
+                                                        Text(text = subject?.name ?: "Subject Class", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color.Black)
+                                                        Text(text = "${plan.course} (${plan.year}) | Division ${plan.division}", fontSize = 11.sp, color = Color.Gray)
+                                                    }
+                                                    Text(text = plan.scheduledTime, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DeepBlue)
+                                                }
+                                                if (idx < dayPlans.size - 1) {
+                                                    Divider(modifier = Modifier.padding(vertical = 6.dp), color = Color.LightGray.copy(alpha = 0.15f))
+                                                }
+                                            }
                                         }
                                     }
-                                }
-                                
-                                Divider(modifier = Modifier.padding(vertical = 10.dp), color = Color.LightGray.copy(alpha = 0.3f))
-                                
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "${plan.course} ${plan.year} - Div ${plan.division}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.DarkGray
-                                    )
-                                    
-                                    Text(
-                                        text = "${plan.scheduledDay}s at ${plan.scheduledTime}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = DeepBlue
-                                    )
                                 }
                             }
                         }
@@ -2487,4 +2830,760 @@ fun TeachingPlanApprovalsScreen(repository: CollegeRepository) {
         }
     }
 }
+
+@Composable
+fun ManageTimetablesScreen(repository: CollegeRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val allTimetables by repository.allTimetables.collectAsState(initial = emptyList())
+
+    var courseInput by remember { mutableStateOf("B.Pharm") }
+    var yearInput by remember { mutableStateOf("Semester 1") }
+
+    var selectedFileUri by remember { mutableStateOf<String?>(null) }
+    var selectedFileName by remember { mutableStateOf<String?>(null) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedFileUri = uri.toString()
+            selectedFileName = getFileName(context, uri) ?: "Attached Timetable.pdf"
+        }
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                elevation = CardDefaults.cardElevation(2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Upload Academic Timetable PDF",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = DeepBlue
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Select Course *", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("B.Pharm", "D.Pharm", "M.Pharm", "PharmD").forEach { c ->
+                            val active = courseInput == c
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(if (active) DeepBlue else Color.LightGray.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        courseInput = c
+                                        val available = getYearsOrSemestersForCourse(c)
+                                        yearInput = available.firstOrNull() ?: "1st Year"
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(c, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (active) Color.White else Color.Black)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("Select Semester / Year *", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    val applicableYears = getYearsOrSemestersForCourse(courseInput)
+                    if (!applicableYears.contains(yearInput)) {
+                        yearInput = applicableYears.firstOrNull() ?: "1st Year"
+                    }
+
+                    var expandedYearDropdown by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        OutlinedButton(
+                            onClick = { expandedYearDropdown = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = yearInput, color = Color.Black, fontSize = 13.sp)
+                                Icon(Icons.Default.ArrowDropDown, "down", tint = Color.Gray)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = expandedYearDropdown,
+                            onDismissRequest = { expandedYearDropdown = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            applicableYears.forEach { semYear ->
+                                DropdownMenuItem(
+                                    text = { Text(semYear) },
+                                    onClick = {
+                                        yearInput = semYear
+                                        expandedYearDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Timetable File Source *", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                            .clickable { filePickerLauncher.launch("application/pdf") },
+                        colors = CardDefaults.cardColors(containerColor = SoftGrey),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.InsertDriveFile,
+                                contentDescription = "pdf icon",
+                                tint = ErrorRed,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = selectedFileName ?: "Select Timetable PDF Document",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedFileName != null) Color.Black else Color.Gray,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (selectedFileName != null) "Ready to upload" else "Click to use device file manager",
+                                    fontSize = 10.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = {
+                            val uri = selectedFileUri
+                            val name = selectedFileName
+                            if (uri == null || name == null) {
+                                Toast.makeText(context, "Please click above to select a PDF timetable file first.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            scope.launch {
+                                val item = Timetable(
+                                    course = courseInput,
+                                    year = yearInput,
+                                    fileName = name,
+                                    fileUri = uri
+                                )
+                                repository.insertTimetable(item)
+                                selectedFileUri = null
+                                selectedFileName = null
+                                Toast.makeText(context, "Time table successfully published for $courseInput - $yearInput!", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Upload, "upload", tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Publish New Timetable", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "CURRENT COMPRESSED PDF TIMETABLES",
+                style = MaterialTheme.typography.titleSmall,
+                color = DeepBlue,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 10.dp, top = 8.dp)
+            )
+        }
+
+        if (allTimetables.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(modifier = Modifier.padding(24.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("No academic timetables are currently uploaded on the server.", color = Color.Gray, fontSize = 13.sp)
+                    }
+                }
+            }
+        } else {
+            items(allTimetables) { t ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(1.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.InsertDriveFile,
+                            contentDescription = "pdf",
+                            tint = ErrorRed,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = t.fileName,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = DeepBlue,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Surface(
+                                    color = DeepBlue.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = t.course,
+                                        fontSize = 9.sp,
+                                        color = DeepBlue,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = Amber.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = t.year,
+                                        fontSize = 9.sp,
+                                        color = Color(0xFFC26402),
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    repository.deleteTimetable(t)
+                                    Toast.makeText(context, "Timetable PDF entry removed.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Delete, "Delete", tint = ErrorRed)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ManageSubjectsScreen(repository: CollegeRepository) {
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Query subjects and faculty/staff list
+    val allSubjects by repository.allSubjects.collectAsState(initial = emptyList())
+    val allUsers by repository.allUsers.collectAsState(initial = emptyList())
+    val allStaffProfiles by repository.allStaffProfiles.collectAsState(initial = emptyList())
+
+    val activeStaff = allUsers.filter { it.role == "Staff" && it.status == "active" }
+
+    // Screen filters
+    var filterCourse by remember { mutableStateOf("All") }
+    var filterYear by remember { mutableStateOf("All") }
+
+    val filteredSubjects = allSubjects.filter { sub ->
+        val matchesCourse = filterCourse == "All" || sub.course == filterCourse
+        val matchesYear = filterYear == "All" || sub.year == filterYear
+        matchesCourse && matchesYear
+    }
+
+    // Dialog state for adding subject
+    var showAddDialog by remember { mutableStateOf(false) }
+    var subjectNameInput by remember { mutableStateOf("") }
+    var selectedCourseInput by remember { mutableStateOf("B.Pharm") }
+    var selectedYearInput by remember { mutableStateOf("1st Year") }
+    var assignedStaffId by remember { mutableStateOf<Long?>(null) }
+    var staffDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Side effect to default assigned staff if active staff load
+    LaunchedEffect(activeStaff) {
+        if (activeStaff.isNotEmpty() && assignedStaffId == null) {
+            assignedStaffId = activeStaff.first().id
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // Welcome Header info-card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = DeepBlue),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = Color.White.copy(alpha = 0.2f),
+                    shape = CircleShape,
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Book, "subjects", tint = Color.White, modifier = Modifier.size(26.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "ACADEMIC SUBJECTS REGISTRY",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Amber
+                    )
+                    Text(
+                        text = "Create and map curriculum subjects, choose courses, years, and declare the faculty assigned.",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Action controls (Add & Filters)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "CURRICULUM LIST (${filteredSubjects.size})",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DeepBlue
+            )
+
+            Button(
+                onClick = {
+                    subjectNameInput = ""
+                    selectedCourseInput = "B.Pharm"
+                    selectedYearInput = "1st Year"
+                    assignedStaffId = activeStaff.firstOrNull()?.id
+                    showAddDialog = true
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Amber),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Add, "add", tint = Color.White)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Subject", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Simple modern horizontal filters
+        Text(
+            text = "FILTER BY COURSE:",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.Gray,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf("All", "B.Pharm", "D.Pharm", "M.Pharm", "PharmD").forEach { c ->
+                val active = filterCourse == c
+                Surface(
+                    modifier = Modifier.clickable { filterCourse = c },
+                    color = if (active) DeepBlue else Color.White,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (active) DeepBlue else Color.LightGray.copy(alpha = 0.8f))
+                ) {
+                    Text(
+                        text = c,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (active) Color.White else Color.DarkGray,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Listing area
+        if (filteredSubjects.isEmpty()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Default.School,
+                        "empty",
+                        tint = Color.LightGray,
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "No Subjects Registered Yet",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = "Tap the 'Add Subject' button to register curriculum classes.",
+                        fontSize = 11.sp,
+                        color = Color.LightGray,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredSubjects) { subject ->
+                    val professor = activeStaff.firstOrNull { it.id == subject.staffId }
+                    val profile = allStaffProfiles.firstOrNull { it.userId == subject.staffId }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = subject.name,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DeepBlue,
+                                    fontSize = 15.sp
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        color = Amber.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "${subject.course} • ${subject.year}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFC26402),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Person,
+                                        "user",
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Faculty: ${professor?.name ?: "Prof. Unassigned"}${if (profile != null) " (Dept: ${profile.department})" else ""}",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        repository.deleteSubject(subject)
+                                        Toast.makeText(context, "Subject deleted successfully", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.Delete, "delete", tint = ErrorRed)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal form dialog to register subjects
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = {
+                Text(
+                    text = "Register New Subject",
+                    fontWeight = FontWeight.Bold,
+                    color = DeepBlue,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        text = "Specify academic details below to publish subject in the database.",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = subjectNameInput,
+                        onValueChange = { subjectNameInput = it },
+                        label = { Text("Subject Name *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Course Target *", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf("B.Pharm", "D.Pharm", "M.Pharm", "PharmD").forEach { c ->
+                            val active = selectedCourseInput == c
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedCourseInput = c }
+                                    .background(
+                                        if (active) DeepBlue else Color.LightGray.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (active) DeepBlue else Color.LightGray,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = c,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (active) Color.White else Color.Black
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text("Select Target Year *", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    val applicableYears = if (selectedCourseInput == "PharmD") {
+                        listOf("1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year", "6th Year")
+                    } else if (selectedCourseInput == "D.Pharm" || selectedCourseInput == "M.Pharm") {
+                        listOf("1st Year", "2nd Year")
+                    } else {
+                        listOf("1st Year", "2nd Year", "3rd Year", "4th Year")
+                    }
+
+                    if (!applicableYears.contains(selectedYearInput)) {
+                        selectedYearInput = applicableYears.firstOrNull() ?: "1st Year"
+                    }
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        applicableYears.chunked(3).forEach { chunk ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                chunk.forEach { y ->
+                                    val active = selectedYearInput == y
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedYearInput = y }
+                                            .background(
+                                                if (active) Amber else Color.LightGray.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .border(
+                                                1.dp,
+                                                if (active) Amber else Color.LightGray,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = y,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (active) Color.White else Color.Black
+                                        )
+                                    }
+                                }
+                                if (chunk.size < 3) {
+                                    repeat(3 - chunk.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Assign Faculty *", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    if (activeStaff.isEmpty()) {
+                        Text(
+                            text = "No active faculty registered in system to assign! Register staff first.",
+                            color = ErrorRed,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        val activeProfessorName = activeStaff.firstOrNull { it.id == assignedStaffId }?.name ?: "Tap to choose faculty member"
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { staffDropdownExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(text = activeProfessorName, color = Color.Black, fontSize = 12.sp)
+                                    Icon(Icons.Default.ArrowDropDown, "expand", tint = Color.Gray)
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = staffDropdownExpanded,
+                                onDismissRequest = { staffDropdownExpanded = false }
+                            ) {
+                                activeStaff.forEach { staff ->
+                                    val staffProf = allStaffProfiles.firstOrNull { it.userId == staff.id }
+                                    DropdownMenuItem(
+                                        text = { Text("${staff.name}${if (staffProf != null) " (${staffProf.department})" else ""}") },
+                                        onClick = {
+                                            assignedStaffId = staff.id
+                                            staffDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val staffId = assignedStaffId
+                        if (subjectNameInput.isEmpty() || staffId == null) {
+                            Toast.makeText(context, "Specify subject name and assign a teacher", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        coroutineScope.launch {
+                            repository.insertSubject(
+                                Subject(
+                                    name = subjectNameInput,
+                                    course = selectedCourseInput,
+                                    year = selectedYearInput,
+                                    staffId = staffId
+                                )
+                            )
+                            Toast.makeText(context, "Subject added!", Toast.LENGTH_SHORT).show()
+                            showAddDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DeepBlue)
+                ) {
+                    Text("Add", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) {
+                    Text("Cancel", color = Color.DarkGray)
+                }
+            }
+        )
+    }
+}
+
 
